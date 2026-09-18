@@ -201,6 +201,7 @@ impl Tool for SendMessageToPeerTool {
                 .as_ref()
                 .map(|_| Arc::new(Mutex::new(TurnUsage::default())));
             zeroclaw_spawn::spawn!(async move {
+                // Keep the large turn future out of the nested cost-scope wrappers.
                 let turn = Box::pin(crate::agent::loop_::process_message(
                     cfg,
                     &recipient_alias,
