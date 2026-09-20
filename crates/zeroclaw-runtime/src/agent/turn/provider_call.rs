@@ -1648,7 +1648,7 @@ mod streaming_fallback_tests {
     }
 
     #[tokio::test]
-    async fn compatible_no_tools_image_recovery_is_exactly_one_physical_call() {
+    async fn factory_exact_replay_image_recovery_is_one_image_free_request() {
         use axum::Json;
         use axum::response::IntoResponse;
 
@@ -1656,10 +1656,22 @@ mod streaming_fallback_tests {
         let request_count_for_route = Arc::clone(&request_count);
         let app = Router::new().route(
             "/chat/completions",
-            post(move |Json(_body): Json<serde_json::Value>| {
+            post(move |Json(body): Json<serde_json::Value>| {
                 let request_count = Arc::clone(&request_count_for_route);
                 async move {
-                    if request_count.fetch_add(1, Ordering::Relaxed) == 0 {
+                    let attempt = request_count.fetch_add(1, Ordering::Relaxed);
+                    let has_image = body["messages"].as_array().unwrap().iter().any(|message| {
+                        message["content"].as_array().is_some_and(|parts| {
+                            parts.iter().any(|part| part["type"] == "image_url")
+                        })
+                    });
+                    assert_eq!(
+                        has_image,
+                        attempt == 0,
+                        "only the original request carries images"
+                    );
+                    assert_eq!(body["model"], "test-model");
+                    if attempt == 0 {
                         return (
                             StatusCode::BAD_REQUEST,
                             Json(serde_json::json!({
@@ -1688,37 +1700,25 @@ mod streaming_fallback_tests {
             "inspect [IMAGE:data:image/png;base64,AAAA]",
         )];
         let recovery = [ChatMessage::user("inspect")];
-        let compatible = OpenAiCompatibleModelProvider::builder("test")
-            .display_name("Test Compatible")
-            .base_url(&format!("http://{addr}"))
-            .credential(None)
-            .auth_style(AuthStyle::Bearer)
-            .vision(true)
-            .build();
-        assert!(compatible.supports_exact_request_replay(
-            ChatRequest {
-                messages: &original,
-                tools: None,
-                thinking: None,
+        let provider = zeroclaw_providers::create_resilient_model_provider_with_options(
+            "custom",
+            None,
+            Some(&format!("http://{addr}")),
+            &zeroclaw_config::schema::ReliabilityConfig {
+                provider_retries: 0,
+                provider_backoff_ms: 1,
+                ..Default::default()
             },
-            "test-model"
-        ));
-        let provider = ReliableModelProvider::new(
-            "test",
-            vec![(
-                "primary".to_string(),
-                Box::new(compatible) as Box<dyn ModelProvider>,
-            )],
-            0,
-            1,
-        );
+            &zeroclaw_providers::ModelProviderRuntimeOptions::default(),
+        )
+        .expect("construct production factory and reliability wrappers");
         let observer = NoopObserver;
         let pacing = PacingConfig::default();
         let ctx = recovery_test_ctx(&observer, &pacing);
 
         let outcome = call_provider(
             &ctx,
-            &provider,
+            provider.as_ref(),
             "test-provider",
             "test-model",
             &original,
@@ -1735,6 +1735,7 @@ mod streaming_fallback_tests {
             Some("recovered")
         );
         assert!(outcome.image_recovery_succeeded);
+        assert_eq!(outcome.attempts.len(), 2);
         assert_eq!(
             request_count.load(Ordering::Relaxed),
             2,
