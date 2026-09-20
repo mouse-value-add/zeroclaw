@@ -61,12 +61,21 @@ generation_failure() {
 }
 
 if [[ "$RELEASE_MODE" -eq 1 ]]; then
-  for tool in cargo jq nix-prefetch-git perl sha256sum; do
+  for tool in cargo jq nix-prefetch-git perl sha256sum python3 bash; do
     if ! command -v "$tool" >/dev/null 2>&1; then
       echo "error: release preparation requires $tool; no files changed" >&2
       exit 1
     fi
   done
+  if ! python3 -c 'import sys, tomllib; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
+    echo "error: release preparation requires Python 3.11+ with tomllib; no files changed" >&2
+    exit 1
+  fi
+  # The Nix refresher is invoked through PATH and uses associative arrays.
+  if ! bash -c '((BASH_VERSINFO[0] >= 4))'; then
+    echo "error: release preparation requires Bash 4+ on PATH for Nix hashes; no files changed" >&2
+    exit 1
+  fi
   if [[ ! -f "$REPO_ROOT/Cargo.lock" ]] || [[ ! -x "$REPO_ROOT/scripts/dev/refresh-nix-hashes.sh" ]]; then
     echo "error: release preparation requires Cargo.lock and executable scripts/dev/refresh-nix-hashes.sh; no files changed" >&2
     exit 1

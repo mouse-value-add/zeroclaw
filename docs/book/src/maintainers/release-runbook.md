@@ -75,11 +75,17 @@ script also refreshes the Nix git dependency hashes (`nix/hashes.json`) via
 `scripts/dev/refresh-nix-hashes.sh`.
 
 Release mode requires `cargo`, `jq`, `nix-prefetch-git`, `perl`, `sha256sum`,
-the lockfile, and the Nix refresh script before it edits files. It stops if
+Python 3.11+ with `tomllib`, Bash 4+ on `PATH`, the lockfile, and the Nix
+refresh script before it edits files. On macOS, install a modern Bash and put
+it ahead of `/bin/bash` on `PATH` for the Nix refresher. It stops if
 lockfile resolution, Nix hashes, or installer generation fails. A failure can
 leave earlier edits in the worktree: inspect them and rerun after fixing the
 reported prerequisite. Do not commit an incomplete bump. Without `--release`,
 the script retains its best-effort behavior for local preparation.
+
+The tag-cut helper, `scripts/release/cut_release_tag.sh`, also uses release
+mode. A preparation failure stops it before committing, fetching, tagging,
+or pushing; the ordinary local mode is not a tag-cut fallback.
 
 ### Refresh and pin translations
 

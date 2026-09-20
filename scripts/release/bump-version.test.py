@@ -33,7 +33,8 @@ class ReleaseBumpTests(unittest.TestCase):
         self.calls = Path(self.temp.name) / "calls"
         self.env = {**os.environ, "PATH": str(self.bin), "BUMP_TEST_CALLS": str(self.calls)}
         # A closed PATH makes missing prerequisites deterministic even on hosts
-        # with a complete release toolchain. Only generators are mocked.
+        # with a complete release toolchain. Generators and the modern-Bash
+        # capability probe are mocked; the Python/TOML probe uses real Python.
         for name in ("dirname", "sed", "head", "awk", "grep", "perl", "sha256sum", "find", "cat", "mv"):
             executable = shutil.which(name)
             self.assertIsNotNone(executable, f"test needs {name}")
@@ -52,8 +53,16 @@ esac
         self.refresh = self.root / "scripts/dev/refresh-nix-hashes.sh"
         self.refresh.write_text('#!/bin/sh\necho nix >> "$BUMP_TEST_CALLS"\nexit "${BUMP_TEST_NIX:-0}"\n')
         self.refresh.chmod(0o700)
-        # The real script invokes its refresh helper via bash.
-        (self.bin / "bash").symlink_to(shutil.which("bash"))
+        (self.bin / "python3").symlink_to(shutil.which("python3"))
+        # Allow these orchestration tests to run on macOS's Bash 3, while the
+        # production Nix refresher requires Bash 4+ for associative arrays.
+        self.stub("bash", '''
+if [ "$1" = -c ]; then
+  test "$2" = '((BASH_VERSINFO[0] >= 4))' || exit 91
+  exit "${BUMP_TEST_BASH:-0}"
+fi
+exec /bin/bash "$@"
+''')
 
     def stub(self, name, body):
         path = self.bin / name
@@ -66,6 +75,10 @@ esac
             cwd=self.temp.name, env={**self.env, **env}, text=True,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15,
         )
+
+    def snapshot(self):
+        return {str(path.relative_to(self.root)): path.read_bytes()
+                for path in self.root.rglob("*") if path.is_file()}
 
     def assert_incomplete(self, result, message):
         self.assertNotEqual(result.returncode, 0, result.stdout)
@@ -98,6 +111,59 @@ esac
         result = self.run_bump("--release", "0.8.6")
         self.assert_incomplete(result, "requires Cargo.lock")
         self.assertIn('version = "0.8.5"', (self.root / "Cargo.toml").read_text())
+
+    def test_missing_python_fails_before_mutation(self):
+        (self.bin / "python3").unlink()
+        before = self.snapshot()
+        result = self.run_bump("--release", "0.8.6")
+        self.assert_incomplete(result, "requires python3")
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse(self.calls.exists())
+
+    def test_unsupported_python_fails_before_mutation(self):
+        (self.bin / "python3").unlink()
+        self.stub("python3", "exit 1")
+        before = self.snapshot()
+        result = self.run_bump("--release", "0.8.6")
+        self.assert_incomplete(result, "requires Python 3.11+ with tomllib")
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse(self.calls.exists())
+
+    def test_old_bash_fails_before_mutation(self):
+        before = self.snapshot()
+        result = self.run_bump("--release", "0.8.6", BUMP_TEST_BASH="1")
+        self.assert_incomplete(result, "requires Bash 4+ on PATH")
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse(self.calls.exists())
+
+    def test_tag_cut_stops_before_git_mutations_when_generation_fails(self):
+        cut = self.root / "scripts/release/cut_release_tag.sh"
+        shutil.copyfile(SCRIPT.with_name("cut_release_tag.sh"), cut)
+        git_calls = Path(self.temp.name) / "git-calls"
+        self.stub("git", '''
+echo "$*" >> "$BUMP_TEST_GIT_CALLS"
+case "$*" in
+  'rev-parse --is-inside-work-tree'|'diff --quiet'|'diff --cached --quiet') exit 0 ;;
+  *) echo "unexpected git operation after failed preparation" >&2; exit 91 ;;
+esac
+''')
+        failures = (
+            ({"BUMP_TEST_OFFLINE": "1", "BUMP_TEST_ONLINE": "1"}, "cargo update --workspace failed"),
+            ({"BUMP_TEST_NIX": "1"}, "refresh-nix-hashes.sh failed"),
+            ({"BUMP_TEST_INSTALLERS": "1"}, "cargo generate installers failed"),
+        )
+        for failure_env, message in failures:
+            with self.subTest(message=message):
+                git_calls.unlink(missing_ok=True)
+                result = subprocess.run(
+                    ["/bin/bash", str(cut), "v0.8.6", "--push"], cwd=self.root,
+                    env={**self.env, **failure_env, "BUMP_TEST_GIT_CALLS": str(git_calls)},
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15,
+                )
+                self.assert_incomplete(result, "error: " + message)
+                self.assertEqual(git_calls.read_text().splitlines(), [
+                    "rev-parse --is-inside-work-tree", "diff --quiet", "diff --cached --quiet",
+                ], "failed preparation must not reach commit, fetch, tag, or push")
 
     def test_missing_refresh_helper_fails_before_mutation(self):
         self.refresh.unlink()
