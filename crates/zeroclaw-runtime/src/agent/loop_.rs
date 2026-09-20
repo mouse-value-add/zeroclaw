@@ -6020,12 +6020,14 @@ mod tests {
 
             let result = run_tool_call_loop(ToolLoop {
                 parent_agent_alias: None,
+                served_route_sink: None,
                 sop_reassembly: None,
                 exec: ResolvedAgentExecution {
                     model_access: ResolvedModelAccess {
                         model_provider: &model_provider,
                         provider_name: "mock-provider",
                         model: "mock-model",
+                        dispatch_model: "mock-model",
                         temperature: Some(0.0),
                     },
                     tools_registry: &tools_registry,
@@ -6044,7 +6046,10 @@ mod tests {
                     strict_tool_parsing: false,
                     parallel_tools: false,
                     max_tool_result_chars: 0,
-                    context_token_budget: 0,
+                    context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(
+                        0,
+                    ),
+                    context_limits_resolver: None,
                     receipt_generator: None,
                     knobs: &LoopKnobs::default(),
                 },
