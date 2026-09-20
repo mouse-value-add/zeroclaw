@@ -63,6 +63,10 @@ need jq
 need curl
 need python3
 need git
+if ! python3 -c 'import sys, tomllib; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
+  echo "error: Python 3.11+ with tomllib is required for publish ordering." >&2
+  exit 1
+fi
 
 VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then

@@ -118,6 +118,35 @@ class PublishCratesTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.uploads(), ["z-relay", "a-runtime"])
 
+    def test_unsupported_python_fails_before_registry_queries(self):
+        probe = self.root / "bin/python3"
+        probe.write_text("#!/bin/sh\nexit 1\n")
+        probe.chmod(0o755)
+        result = self.run_publisher([package("a")])
+        self.assert_preflight_failure(result, "Python 3.11+ with tomllib is required")
+
+    def test_real_workspace_graph_is_publishable(self):
+        root = RELEASE.parents[1]
+        metadata = subprocess.run(
+            ["cargo", "metadata", "--format-version", "1", "--no-deps", "--locked", "--offline"],
+            cwd=root, text=True, capture_output=True, check=True, timeout=60,
+        )
+        data = json.loads(metadata.stdout)
+        import tomllib
+        with (root / "Cargo.toml").open("rb") as manifest:
+            version = tomllib.load(manifest)["workspace"]["package"]["version"]
+        ordered = subprocess.run(
+            ["python3", str(RELEASE / "publish_order.py"), version],
+            input=metadata.stdout, cwd=root, text=True, capture_output=True, timeout=15,
+        )
+        self.assertEqual(ordered.returncode, 0, ordered.stderr)
+        expected = {p["name"] for p in data["packages"]
+                    if p["publish"] is None and p["version"] == version}
+        names = ordered.stdout.splitlines()
+        self.assertTrue(expected, "real workspace must have release crates")
+        self.assertEqual(set(names), expected)
+        self.assertEqual(len(names), len(expected))
+
     def test_normal_build_target_and_renamed_edges_are_ordered(self):
         result = self.run_publisher([
             package("a-app", [dependency("z-normal"), dependency("z-build", "build"),
