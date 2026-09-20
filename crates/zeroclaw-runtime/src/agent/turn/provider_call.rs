@@ -167,6 +167,7 @@ pub(crate) async fn call_provider(
     active_model_provider: &dyn ModelProvider,
     active_model_provider_name: &str,
     active_model: &str,
+    active_dispatch_model: &str,
     prepared_messages: &[ChatMessage],
     image_recovery_messages: Option<&[ChatMessage]>,
     request_tools: Option<&[ToolSpec]>,
@@ -197,7 +198,7 @@ pub(crate) async fn call_provider(
                         active_model_provider,
                         prepared_messages,
                         request_tools,
-                        active_model,
+                        active_dispatch_model,
                         ctx.temperature,
                         ctx.cancellation_token,
                         ctx.on_delta,
@@ -340,7 +341,7 @@ pub(crate) async fn call_provider(
                                     .is_none_or(StreamProviderFailure::replay_safe);
                             let recover_images = image_recovery_candidate
                                 && active_model_provider
-                                    .supports_exact_request_replay(original_request, active_model);
+                                    .supports_exact_request_replay(original_request, active_dispatch_model);
                             let recovery_messages = if recover_images {
                                 zeroclaw_providers::reliable::permit_exact_image_recovery();
                                 image_recovery_messages.unwrap_or(prepared_messages)
@@ -365,7 +366,7 @@ pub(crate) async fn call_provider(
                                             dispatcher
                                                 .chat_after_stream_refusal(
                                                     request,
-                                                    active_model,
+                                                    active_dispatch_model,
                                                     ctx.temperature,
                                                     refusal,
                                                 )
@@ -373,7 +374,7 @@ pub(crate) async fn call_provider(
                                         }
                                         None => {
                                             dispatcher
-                                                .chat(request, active_model, ctx.temperature)
+                                                .chat(request, active_dispatch_model, ctx.temperature)
                                                 .await
                                         }
                                     }
@@ -439,7 +440,7 @@ pub(crate) async fn call_provider(
         let chat_future = scope.scope(Box::pin(with_exact_dispatch_route(
             active_model_provider_name.to_string(),
             active_model.to_string(),
-            dispatcher.chat(original_request, active_model, ctx.temperature),
+            dispatcher.chat(original_request, active_dispatch_model, ctx.temperature),
         )));
 
         let mut result = match ctx.pacing.step_timeout_secs {
@@ -482,11 +483,11 @@ pub(crate) async fn call_provider(
                 if is_http_bad_request(&original_error) && image_recovery_messages.is_some() =>
             {
                 let exact_replay_supported = active_model_provider
-                    .supports_exact_request_replay(original_request, active_model);
+                    .supports_exact_request_replay(original_request, active_dispatch_model);
                 if exact_replay_supported {
                     let recovery = zeroclaw_providers::compatible::scope_exact_request_replay(
                         scope.scope(with_exact_dispatch_route(
-                            ctx.provider_name.to_string(),
+                            active_model_provider_name.to_string(),
                             active_model.to_string(),
                             dispatcher.chat(
                                 ChatRequest {
@@ -497,7 +498,7 @@ pub(crate) async fn call_provider(
                                         .ok()
                                         .flatten(),
                                 },
-                                active_model,
+                                active_dispatch_model,
                                 ctx.temperature,
                             ),
                         )),
@@ -588,6 +589,12 @@ mod payload_capture_tests {
             observer,
             provider_name: "stub",
             model: "stub-model",
+            context_limits: zeroclaw_config::schema::ResolvedContextLimits {
+                model_context_window: 32_000,
+                context_token_budget: 32_000,
+                model_context_window_source:
+                    zeroclaw_config::schema::ModelContextWindowSource::Configured,
+            },
             temperature: None,
             approval: None,
             channel_name: "test",
@@ -805,6 +812,7 @@ mod streaming_fallback_tests {
             observer,
             provider_name: "test-provider",
             model: "test-model",
+            context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0),
             temperature: Some(0.0),
             approval: None,
             channel_name: "test",
@@ -1306,6 +1314,7 @@ mod streaming_fallback_tests {
             observer: &observer,
             provider_name: "test-provider",
             model: "test-model",
+            context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0),
             temperature: Some(0.0),
             approval: None,
             channel_name: "test",
@@ -1335,6 +1344,7 @@ mod streaming_fallback_tests {
                         &ctx,
                         &provider,
                         "test-provider",
+                        "test-model",
                         "test-model",
                         &[ChatMessage::user("go")],
                         None,
@@ -1407,6 +1417,7 @@ mod streaming_fallback_tests {
             observer: &observer,
             provider_name: "test-provider",
             model: "test-model",
+            context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0),
             temperature: Some(0.0),
             approval: None,
             channel_name: "test",
@@ -1431,6 +1442,7 @@ mod streaming_fallback_tests {
             &ctx,
             &provider,
             "test-provider",
+            "test-model",
             "test-model",
             &[ChatMessage::user("go")],
             None,
@@ -1460,6 +1472,7 @@ mod streaming_fallback_tests {
             observer: &observer,
             provider_name: "test-provider",
             model: "test-model",
+            context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0),
             temperature: Some(0.0),
             approval: None,
             channel_name: "test",
@@ -1484,6 +1497,7 @@ mod streaming_fallback_tests {
             &ctx,
             &provider,
             "test-provider",
+            "test-model",
             "test-model",
             &[ChatMessage::user("go")],
             None,
@@ -1594,6 +1608,7 @@ mod streaming_fallback_tests {
                 observer: &observer,
                 provider_name: "test-provider",
                 model: "test-model",
+                context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0),
                 temperature: Some(0.0),
                 approval: None,
                 channel_name: "test",
@@ -1618,6 +1633,7 @@ mod streaming_fallback_tests {
                 &ctx,
                 &provider,
                 "test-provider",
+                "test-model",
                 "test-model",
                 &[ChatMessage::user("go")],
                 None,
@@ -1712,15 +1728,36 @@ mod streaming_fallback_tests {
             &zeroclaw_providers::ModelProviderRuntimeOptions::default(),
         )
         .expect("construct production factory and reliability wrappers");
+        let provider = zeroclaw_providers::router::RouterModelProvider::new(
+            "test-router",
+            vec![
+                (
+                    "default".into(),
+                    Box::new(StreamFailureNoReplayProvider {
+                        non_stream_calls: Arc::new(AtomicUsize::new(0)),
+                    }),
+                ),
+                ("test-provider".into(), provider),
+            ],
+            vec![(
+                "images".into(),
+                zeroclaw_providers::router::Route {
+                    provider_name: "test-provider".into(),
+                    model: "test-model".into(),
+                },
+            )],
+            "default-model".into(),
+        );
         let observer = NoopObserver;
         let pacing = PacingConfig::default();
         let ctx = recovery_test_ctx(&observer, &pacing);
 
         let outcome = call_provider(
             &ctx,
-            provider.as_ref(),
+            &provider,
             "test-provider",
             "test-model",
+            "hint:images",
             &original,
             Some(&recovery),
             None,
@@ -1775,6 +1812,7 @@ mod streaming_fallback_tests {
             observer: &observer,
             provider_name: "requested-provider",
             model: "requested-model",
+            context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0),
             temperature: Some(0.0),
             approval: None,
             channel_name: "test",
@@ -1800,6 +1838,7 @@ mod streaming_fallback_tests {
                 &ctx,
                 &provider,
                 "requested-provider",
+                "requested-model",
                 "requested-model",
                 &[ChatMessage::user("go")],
                 None,
@@ -1878,6 +1917,7 @@ mod streaming_fallback_tests {
             observer: &observer,
             provider_name: "test-provider",
             model: "test-model",
+            context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0),
             temperature: Some(0.0),
             approval: None,
             channel_name: "test",
@@ -1902,6 +1942,7 @@ mod streaming_fallback_tests {
             &ctx,
             &provider,
             "test-provider",
+            "test-model",
             "test-model",
             &[ChatMessage::user("go")],
             None,
@@ -1947,6 +1988,7 @@ mod streaming_fallback_tests {
             observer: &observer,
             provider_name: "requested-provider",
             model: "requested-model",
+            context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0),
             temperature: Some(0.0),
             approval: None,
             channel_name: "test",
@@ -1971,6 +2013,7 @@ mod streaming_fallback_tests {
             &ctx,
             &provider,
             "requested-provider",
+            "requested-model",
             "requested-model",
             &[ChatMessage::user("go")],
             None,
@@ -2017,6 +2060,7 @@ mod streaming_fallback_tests {
             observer: &observer,
             provider_name: "requested-provider",
             model: "requested-model",
+            context_limits: zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0),
             temperature: Some(0.0),
             approval: None,
             channel_name: "test",
@@ -2041,6 +2085,7 @@ mod streaming_fallback_tests {
             &ctx,
             &provider,
             "requested-provider",
+            "requested-model",
             "requested-model",
             &[ChatMessage::user("go")],
             None,
@@ -2186,6 +2231,7 @@ mod streaming_fallback_tests {
             &provider,
             "test-provider",
             "test-model",
+            "test-model",
             &original,
             Some(&recovery),
             None,
@@ -2231,6 +2277,7 @@ mod streaming_fallback_tests {
                 &provider,
                 "test-provider",
                 "test-model",
+                "test-model",
                 &original,
                 Some(&recovery),
                 None,
@@ -2272,6 +2319,7 @@ mod streaming_fallback_tests {
                 &ctx,
                 &provider,
                 "test-provider",
+                "test-model",
                 "test-model",
                 &original,
                 Some(&recovery),
