@@ -2644,7 +2644,6 @@ async fn safety_net_narration_reaches_both_draft_and_event_channels_once() {
     let turn_id = uuid::Uuid::new_v4().to_string();
     crate::agent::loop_::run_tool_call_loop(crate::agent::loop_::ToolLoop {
         parent_agent_alias: None,
-        served_route_sink: None,
         sop_reassembly: None,
         exec: crate::agent::loop_::ResolvedAgentExecution::resolve(
             crate::agent::loop_::ResolvedModelAccess {
@@ -2675,10 +2674,8 @@ async fn safety_net_narration_reaches_both_draft_and_event_channels_once() {
                 parallel_tools: false,
                 max_tool_result_chars: 30_000,
                 context_limits: zeroclaw_config::schema::ResolvedContextLimits {
-                    model_context_window: 100_000,
                     context_token_budget: 100_000,
-                    model_context_window_source:
-                        zeroclaw_config::schema::ModelContextWindowSource::Configured,
+                    ..zeroclaw_config::schema::ResolvedContextLimits::legacy_fallback(0)
                 },
                 context_limits_resolver: None,
                 knobs: &crate::agent::loop_::LoopKnobs::default(),
@@ -2702,6 +2699,7 @@ async fn safety_net_narration_reaches_both_draft_and_event_channels_once() {
         ingress: IngressContext::sub_turn(),
         agent_alias: None,
         turn_id: &turn_id,
+        served_route_sink: None,
     })
     .await
     .expect("loop should succeed");
