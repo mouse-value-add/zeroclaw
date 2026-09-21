@@ -7596,7 +7596,8 @@ mod tool_lifecycle_abandonment_tests {
             false,
             None,
             &mut history,
-            500,
+            // Fit the retained image, prompt framing and trim breadcrumb.
+            crate::agent::history::IMAGE_TOKEN_ESTIMATE + 1_000,
         )
         .await
         .expect("trimmed request recovers without the image");
