@@ -6085,6 +6085,8 @@ mod tests {
                     CountingTool::new("probe", Arc::clone(&invocations)),
                 )]);
             let mut history = vec![ChatMessage::user(original.clone())];
+            let mut history_has_trim_breadcrumb = false;
+            let mut injected_memory_preamble = None;
             let observer = NoopObserver;
 
             let result = run_tool_call_loop(ToolLoop {
@@ -6123,6 +6125,8 @@ mod tests {
                     knobs: &LoopKnobs::default(),
                 },
                 history: &mut history,
+                history_has_trim_breadcrumb: &mut history_has_trim_breadcrumb,
+                injected_memory_preamble: &mut injected_memory_preamble,
                 channel_name: "cli",
                 channel_reply_target: None,
                 cancellation_token: None,
