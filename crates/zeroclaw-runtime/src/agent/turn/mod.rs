@@ -7649,7 +7649,11 @@ mod tool_lifecycle_abandonment_tests {
         .await
         .expect("trimmed request recovers without the image");
 
-        assert_eq!(result, "done");
+        let notice = crate::i18n::get_required_cli_string_with_args(
+            "turn-provider-images-quarantined",
+            &[("count", "1"), ("count_plural", "one")],
+        );
+        assert_eq!(result, format!("{notice}\n\ndone"));
         let requests = provider.requests.lock().expect("request lock");
         assert_eq!(requests.len(), 2);
         for messages in requests.iter() {
