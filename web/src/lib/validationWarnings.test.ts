@@ -19,7 +19,7 @@ test('known config warnings resolve through the dashboard catalog', async () => 
     path: 'security.audit.enabled',
   });
 
-  assert.match(auditMessage, /certificate issuance and renewal are recorded nowhere/i);
+  assert.match(auditMessage, /certificate issuance and renewal have no audit-log record/i);
   assert.match(auditMessage, /command execution is not audited/i);
   assert.doesNotMatch(auditMessage, /unlocalized audit fallback/);
 });
