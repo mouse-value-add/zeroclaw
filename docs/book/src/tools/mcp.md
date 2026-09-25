@@ -90,19 +90,10 @@ access, the agent may choose these tools during its work. To revoke access,
 remove `"parallel"` from every bundle granted to that agent, or add it to a
 granted bundle's `exclude` list, then restart the session.
 
-### Example: You.com Search
+### Other compatible servers
 
 [You.com MCP](https://github.com/youdotcom-oss/agent-skills) provides web
-search and page content extraction. It has two Streamable HTTP endpoints that
-use ZeroClaw's `http` transport:
-
-- `https://api.you.com/mcp?profile=free`: keyless, exposes the `you-search`
-  tool with no account, API key, or credit card. Free access is rate limited.
-- `https://api.you.com/mcp`: authenticated, exposes `you-search` plus
-  additional tools (page content extraction, research, finance). Get an API
-  key at [you.com/platform/api-keys](https://you.com/platform/api-keys).
-
-Keyless setup:
+search and page content extraction. Use the standard ZeroClaw HTTP MCP setup:
 
 ```toml
 [[mcp.servers]]
@@ -117,14 +108,8 @@ servers = ["you"]
 mcp_bundles = ["you"]
 ```
 
-The agent can then use `you__you-search`, subject to its normal tool
-authorization and approval policy. Calls send search queries to You.com. To
-revoke access, remove `"you"` from every bundle granted to that agent, or add
-it to a granted bundle's `exclude` list, then restart the session.
-
-For the authenticated endpoint, use the same entries with
-`url = "https://api.you.com/mcp"` and store the API key in the `headers`
-secret field rather than plaintext `config.toml`:
+The agent can then use `you__you-search`. For the authenticated endpoint
+(`https://api.you.com/mcp`), set the URL and store the API key:
 
 ```sh
 zeroclaw config set mcp.servers.you.url https://api.you.com/mcp
@@ -132,15 +117,16 @@ zeroclaw config set mcp.servers.you.headers.Authorization
 ```
 
 The second command opens ZeroClaw's masked secret prompt; enter
-`Bearer <YDC_API_KEY>` there. All MCP header values use the masked prompt, so
-the key is stored in the encrypted secrets store (or a 1Password `op://`
-reference) instead of the config file.
+`Bearer <YDC_API_KEY>` there. The header value is stored in `config.toml`
+(encrypted when ZeroClaw secrets encryption is configured), or stores a
+literal `op://` 1Password reference. See the
+[You.com setup docs](https://you.com/docs) and the
+[ZeroClaw MCP guide](https://zeroclaw.dev/docs/tools/mcp#server-fields) for
+full details.
 
 Merge these entries into your existing `config.toml` using the alias of the
-agent you want to grant access, the same merge guidance as the Parallel
-example above: add to existing `mcp_bundles` lists rather than replacing them,
-keep `mcp.enabled = true`, and restart the affected session after changing
-grants.
+agent you want to grant access. To revoke, remove `"you"` from the bundle
+granted to that agent, or add it to a granted bundle's `exclude` list.
 
 ## Editing servers
 
