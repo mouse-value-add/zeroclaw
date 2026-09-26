@@ -92,41 +92,14 @@ granted bundle's `exclude` list, then restart the session.
 
 ### Other compatible servers
 
-[You.com MCP](https://github.com/youdotcom-oss/agent-skills) provides web
-search and page content extraction. Use the standard ZeroClaw HTTP MCP setup:
-
-```toml
-[[mcp.servers]]
-name = "you"
-transport = "http"
-url = "https://api.you.com/mcp?profile=free"
-
-[mcp_bundles.you]
-servers = ["you"]
-
-[agents.assistant]
-mcp_bundles = ["you"]
-```
-
-The agent can then use `you__you-search`. For the authenticated endpoint
-(`https://api.you.com/mcp`), set the URL and store the API key:
-
-```sh
-zeroclaw config set mcp.servers.you.url https://api.you.com/mcp
-zeroclaw config set mcp.servers.you.headers.Authorization
-```
-
-The second command opens ZeroClaw's masked secret prompt; enter
-`Bearer <YDC_API_KEY>` there. The header value is stored in `config.toml`
-(encrypted when ZeroClaw secrets encryption is configured), or stores a
-literal `op://` 1Password reference. See the
+[You.com MCP](https://github.com/youdotcom-oss/agent-skills) is another
+compatible HTTP MCP server for web search and page content extraction. Follow
+the standard HTTP MCP setup shown in the Parallel example above, using
+`https://api.you.com/mcp` (authenticated) or
+`https://api.you.com/mcp?profile=free` (keyless) as the URL. See the
 [You.com setup docs](https://you.com/docs) and the
-[ZeroClaw MCP guide](https://zeroclaw.dev/docs/tools/mcp#server-fields) for
-full details.
-
-Merge these entries into your existing `config.toml` using the alias of the
-agent you want to grant access. To revoke, remove `"you"` from the bundle
-granted to that agent, or add it to a granted bundle's `exclude` list.
+[ZeroClaw MCP server fields guide](https://zeroclaw.dev/docs/tools/mcp#server-fields)
+for configuration details.
 
 ## Editing servers
 
